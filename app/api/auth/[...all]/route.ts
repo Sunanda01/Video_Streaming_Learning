@@ -1,6 +1,11 @@
 import aj from "@/lib/arcjet";
 import { auth } from "@/lib/auth";
-import { ArcjetDecision, shield, slidingWindow, validateEmail } from "@/lib/arcjet";
+import {
+  ArcjetDecision,
+  shield,
+  slidingWindow,
+  validateEmail,
+} from "@/lib/arcjet";
 import { toNextJsHandler } from "better-auth/next-js";
 import ip from "@arcjet/ip";
 import { NextRequest } from "next/server";
@@ -30,7 +35,10 @@ const shieldValidation = aj.withRule(
   })
 );
 
-const protectedAuth = async (req: NextRequest): Promise<ArcjetDecision> => {
+const protectedAuth = async (
+  req: NextRequest,
+  body: any
+): Promise<ArcjetDecision> => {
   const session = await auth.api.getSession({ headers: req.headers });
   let userId: string;
   if (session?.user?.id) {
@@ -39,18 +47,15 @@ const protectedAuth = async (req: NextRequest): Promise<ArcjetDecision> => {
     userId = ip(req) || "127.0.0.1";
   }
   if (req.nextUrl.pathname.startsWith("/api/auth/sign-in")) {
-    const body = await req.json();
     if (typeof body.email === "string") {
-      return emailValidation.protect(req, {
-        email: body.email,
-      });
+      return emailValidation.protect(req, { email: body.email });
     }
   }
-    if (!req.nextUrl.pathname.startsWith("/api/auth/sign-out")) {
-    return rateLimit.protect(req, {
-      fingerprint: userId,
-    });
+
+  if (!req.nextUrl.pathname.startsWith("/api/auth/sign-out")) {
+    return rateLimit.protect(req, { fingerprint: userId });
   }
+
   return shieldValidation.protect(req);
 };
 
@@ -58,7 +63,8 @@ export const { GET } = authHandler;
 
 export const POST = async (req: NextRequest) => {
   try {
-    const decision = await protectedAuth(req);
+    const body = await req.json();
+    const decision = await protectedAuth(req, body);
 
     if (decision.isDenied()) {
       if (decision.reason.isEmail()) {
@@ -71,11 +77,15 @@ export const POST = async (req: NextRequest) => {
         return new Response("Shield validation failed", { status: 403 });
       }
     }
+    const newReq = new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: JSON.stringify(body),
+    });
 
-    return authHandler.POST(req);
+    return authHandler.POST(newReq);
   } catch (error) {
     console.error("POST handler error:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
 };
-
