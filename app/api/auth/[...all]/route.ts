@@ -39,7 +39,7 @@ const protectedAuth = async (req: NextRequest): Promise<ArcjetDecision> => {
     userId = ip(req) || "127.0.0.1";
   }
   if (req.nextUrl.pathname.startsWith("/api/auth/sign-in")) {
-    const body = await req.clone().json();
+    const body = await req.json();
     if (typeof body.email === "string") {
       return emailValidation.protect(req, {
         email: body.email,
@@ -57,18 +57,25 @@ const protectedAuth = async (req: NextRequest): Promise<ArcjetDecision> => {
 export const { GET } = authHandler;
 
 export const POST = async (req: NextRequest) => {
-  const decision = await protectedAuth(req);
-  if (decision.isDenied()) {
-    if (decision.reason.isEmail()) {
-      throw new Error("Email validation failed");
-    }
-    if (decision.reason.isRateLimit()) {
-      throw new Error("Rate limit exceeded");
-    }
-    if (decision.reason.isShield()) {
-      throw new Error("Shield validation failed");
-    }
-  }
+  try {
+    const decision = await protectedAuth(req);
 
-  return authHandler.POST(req);
+    if (decision.isDenied()) {
+      if (decision.reason.isEmail()) {
+        return new Response("Email validation failed", { status: 400 });
+      }
+      if (decision.reason.isRateLimit()) {
+        return new Response("Rate limit exceeded", { status: 429 });
+      }
+      if (decision.reason.isShield()) {
+        return new Response("Shield validation failed", { status: 403 });
+      }
+    }
+
+    return authHandler.POST(req);
+  } catch (error) {
+    console.error("POST handler error:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
 };
+
